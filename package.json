@@ -1,0 +1,32 @@
+{
+  "name": "swarm",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "nodemon ./cli.js --data-dir examples/foo init",
+    "test": "mocha --recursive",
+    "cover": "istanbul cover node_modules/.bin/_mocha -- -u exports --recursive -R spec test"
+  },
+  "author": "Ganesha <reekoheek@gmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "babel-eslint": "^7.2.3",
+    "eslint": "^4.2.0",
+    "eslint-config-standard": "^10.2.1",
+    "eslint-config-xinix": "^1.0.4",
+    "eslint-plugin-import": "^2.7.0",
+    "eslint-plugin-node": "^5.1.1",
+    "eslint-plugin-promise": "^3.5.0",
+    "eslint-plugin-standard": "^3.0.1",
+    "istanbul": "^1.0.0-alpha.2",
+    "mocha": "^3.4.2",
+    "sinon": "^2.3.8"
+  },
+  "dependencies": {
+    "js-sha3": "^0.6.1",
+    "minimist": "^1.2.0",
+    "node-fetch": "^1.7.1",
+    "node-rsa": "^0.4.2"
+  }
+}

@@ -1,0 +1,14 @@
+# Identity
+
+Address for user
+
+<name>:<hash>
+
+Examples:
+
+reekoheek@147d9f84d8d74d52c905e066424d787adadfbe4ba50354644046d90da58ee748
+reekoheek@8AC6CB170F0A41B6BE8B46781CF1509A
+
+12imam:reekoheek@147d9f84d8d74d52c905e066424d787adadfbe4ba50354644046d90da58ee748
+
+ae3cd4e7013836a3df6bd7241b12db061dbe2c6785853cce422d148a624ce0bd

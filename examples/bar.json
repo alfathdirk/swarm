@@ -1,0 +1,8 @@
+{
+  "channels": [
+    {
+      "kind": "http",
+      "port": 1213
+    }
+  ]
+}
