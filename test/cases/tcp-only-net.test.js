@@ -24,6 +24,7 @@ describe.only('Case: tcp only net', () => {
   it('connect to boot peer', async () => {
     let spy1 = sinon.spy();
     let spy2 = sinon.spy();
+
     swarm1.on('connect', spy1);
     swarm2.on('connect', spy2);
 
@@ -35,6 +36,28 @@ describe.only('Case: tcp only net', () => {
     assert.equal(swarm1.peers.length, 1);
     assert.equal(swarm2.peers.length, 1);
 
-    console.log(swarm1.peers[0].dump());
+    // console.log(swarm1.peers);
+    // console.log(swarm2.peers);
+
+    await new Promise((resolve, reject) => {
+      let outboundMessage = {
+        app: 'foo',
+        command: 'bar',
+        payload: 'anu gemes',
+      };
+
+      swarm2.on('message', message => {
+        try {
+          let { app, command, payload } = message;
+          assert.deepEqual({ app, command, payload }, outboundMessage);
+
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      });
+
+      swarm1.send(swarm2.address, outboundMessage);
+    });
   });
 });

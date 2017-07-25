@@ -38,7 +38,7 @@ class Tcp extends Channel {
   }
 
   async connect (url) {
-    debug('Channel:Tcp', `connect to ${url}...`);
+    debug('Channel:Tcp', `Connect to ${url}...`);
     let u = new URL(url);
     let port = u.port;
     let host = u.hostname;
@@ -61,6 +61,10 @@ class Tcp extends Channel {
       this.server.close(resolve);
       this.server = null;
     });
+  }
+
+  ipUrls (ips) {
+    return ips.map(ip => `tcp:/${ip}:${this.port}`);
   }
 }
 

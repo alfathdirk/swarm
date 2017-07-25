@@ -7,6 +7,7 @@ const { EventEmitter } = require('events');
 const Memory = require('./storage/memory');
 const { Session } = require('./session');
 const debug = require('./helpers/debug');
+const os = require('os');
 
 /**
  * Object to initiate swarm network or join to network
@@ -46,6 +47,10 @@ class Swarm extends EventEmitter {
     this.initChannels(channels);
     this.initDiscovery(discovery, bootPeers);
     // discovery instanceof Discovery ? discovery : new Discovery({ channels: this.channels, methods: discovery, bootPeers });
+  }
+
+  get address () {
+    return this.identity.address;
   }
 
   initChannels (definitions = []) {
@@ -95,14 +100,16 @@ class Swarm extends EventEmitter {
 
   addChannel (channel) {
     channel = this.resolveChannel(channel);
-    channel.on('incoming', async ({ socket, url }) => {
-      let session = new Session({ identity: this.identity, url, socket });
-      let peer = this.resolvePeer();
-      await this.connect(peer, session);
-      this.addPeer(peer);
-      debug('Swarm', `incoming session ${session.peerIdentity.address}`);
-    });
     this.channels[channel.kind] = channel;
+  }
+
+  send (address, data) {
+    let peer = this.findPeer(address);
+    return peer.send(data);
+  }
+
+  findPeer (address) {
+    return this.peers.find(peer => peer.identity.address === address);
   }
 
   addPeer (peer) {
@@ -174,30 +181,86 @@ class Swarm extends EventEmitter {
       return peer;
     }
 
-    let { channels, identity } = this;
-    return new Peer(Object.assign({ channels, identity }, peer));
+    return this.newPeer(peer);
   }
 
-  async connect (peer, socket) {
+  newPeer (peer) {
+    let { channels } = this;
+    return new Peer(Object.assign({ channels }, peer));
+  }
+
+  async connect (peer, session) {
+    if (!session) {
+      let { socket, url } = await this.dial(peer);
+      session = this.newSession({ url, socket, initiate: true });
+    }
+
     let advertisement = this.getAdvertisement();
-    await peer.connect(advertisement, socket);
+    let advertised = await session.handshake(this.identity, advertisement);
+    Object.assign(peer, advertised);
+    peer.session = session;
+
     this.emit('connect', peer);
+  }
+
+  newSession ({ url, socket, initiate }) {
+    let session = new Session({ url, socket, initiate });
+    session.on('message', message => this.emit('message', message));
+    return session;
+  }
+
+  async dial (peer) {
+    for (let url of peer.urls) {
+      let proto = url.split(':').shift();
+      let channel = this.channels[proto];
+      if (channel) {
+        try {
+          let socket = await channel.connect(url);
+          return { socket, url };
+        } catch (err) {
+          console.error(err);
+          console.error(`Channel connect error url[${url}] message[${err.message}]`);
+        }
+      }
+    }
+
+    throw new Error('Dial error');
   }
 
   getAdvertisement () {
     return {
-      identity: this.identity.dump(),
       urls: this.getEligibleUrls(),
+      apps: this.getEligibleApps(),
     };
   }
 
-  // FIXME: revisit generating eligible urls
-  getEligibleUrls () {
+  // TODO: revisit this later when app implemented
+  getEligibleApps () {
     return [];
   }
 
+  getEligibleUrls () {
+    let ips = this.getIps();
+    let urls = [];
+    Object.values(this.channels).forEach(channel => channel.ipUrls(ips).forEach(url => urls.push(url)));
+    return urls;
+  }
+
+  getIps () {
+    let ifaces = os.networkInterfaces();
+    let result = [];
+    Object.values(ifaces).forEach(iface => {
+      iface.forEach(ip => {
+        if (ip.family === 'IPv6') return;
+        result.push(ip.address);
+      });
+    });
+
+    return result;
+  }
+
   async disconnect (peer) {
-    await peer.disconnect();
+    await peer.hangup();
     this.emit('disconnect', peer);
   }
 
@@ -215,7 +278,16 @@ class Swarm extends EventEmitter {
       throw new Error(`Channel adapter not found ${channel.kind}`);
     }
 
-    return new ChannelAdapter(channel);
+    channel = new ChannelAdapter(channel);
+    channel.on('incoming', async ({ socket, url }) => {
+      let session = this.newSession({ url, socket });
+      let peer = this.newPeer();
+      await this.connect(peer, session);
+      this.addPeer(peer);
+      debug('Swarm', `incoming session ${session.peerIdentity.address}`);
+    });
+
+    return channel;
   }
 }
 

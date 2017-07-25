@@ -1,12 +1,9 @@
-const { Session } = require('./session');
 const debug = require('./helpers/debug');
 
 class Peer {
-  constructor ({ channels = [], urls = [] } = {}) {
+  constructor ({ urls = [] } = {}) {
     this.urls = urls;
-    this.channels = channels;
     this.session = null;
-    // TODO: revisit apps
     this.apps = [];
   }
 
@@ -18,39 +15,8 @@ class Peer {
     return Boolean(this.session && this.session.initiate);
   }
 
-  get identity () {
-    if (!this.connected) {
-      return;
-    }
-    return this.session.identity;
-  }
-
-  async connect (advertisement, session) {
-    session = session || (await this.dial());
-    await session.handshake(advertisement);
-    this.session = session;
-  }
-
-  async disconnect () {
-    await this.hangup();
-  }
-
-  async dial () {
-    for (let url of this.urls) {
-      let proto = url.split(':').shift();
-      let channel = this.channels[proto];
-      if (channel) {
-        try {
-          let socket = await channel.connect(url);
-          return new Session({ url, socket, initiate: true });
-        } catch (err) {
-          console.error(err);
-          console.error(`Channel connect error url[${url}] message[${err.message}]`);
-        }
-      }
-    }
-
-    throw new Error('Dial error');
+  send (data) {
+    return this.session.write(data);
   }
 
   async hangup () {

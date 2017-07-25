@@ -3,6 +3,10 @@ const { Identity } = require('./identity');
 const debug = require('./helpers/debug');
 const { EventEmitter } = require('events');
 
+/**
+ *
+ * Mode e,p
+ */
 class Session extends EventEmitter {
   constructor ({ url, socket, initiate = false }) {
     super();
@@ -17,8 +21,22 @@ class Session extends EventEmitter {
     this.socket = socket;
 
     socket.on('data', buf => {
-      let [ v, m, p ] = buf.toString().split(':');
-      this.emit('raw', { v, m, p });
+      let message = buf.toString();
+      let [ version, from, app, command, mode, payload ] = message.split(':');
+      if (mode === 'e') {
+        let [ enc, sig ] = payload.split('.').map(chunk => Buffer.from(chunk, 'base64'));
+        let verified = this.peerIdentity.verify(enc, sig);
+        if (!verified) {
+          debug('Session', 'unverified encrypted message arrived');
+          return;
+        }
+
+        payload = JSON.parse(this.identity.decrypt(enc, 'utf8'));
+
+        this.emit('message', { version, from, app, command, payload });
+      } else {
+        this.emit('plain', { version, from, app, command, payload });
+      }
     });
 
     socket.on('end', () => {
@@ -45,38 +63,53 @@ class Session extends EventEmitter {
    * m = mode - h = handshake, d = data
    * p = payload base64
    */
-  async handshake (advertisement) {
+  async handshake (identity, advertisement) {
     debug('Session', 'send handshake advertise');
 
-    // FIXME: change handshaking payload to base64(json(advertisement))
-    let { identity, urls = [], apps = [] } = advertisement;
     this.identity = identity;
-    console.log('>>>>', { identity, urls, apps });
+    let { address, publicKey } = identity;
 
-    this.rawWrite({
-      v: 1,
-      m: 'h',
-      p: `${this.identity.address}.${Buffer.from(this.identity.publicKey).toString('base64')}`,
+    this.writeRaw({
+      command: 'h',
+      mode: 'p',
+      payload: this.wrapEnvelope(Object.assign({ identity: { address, publicKey } }, advertisement)),
     });
 
     if (this.peerIdentity) {
       return;
     }
 
-    await new Promise((resolve, reject) => {
-      this.once('raw', ({ v, m, p }) => {
-        if (m === 'h') {
-          let [ address, pub ] = p.split('.');
-          pub = Buffer.from(pub, 'base64').toString('utf8');
-          this.peerIdentity = new Identity(pub, address);
-          resolve();
+    let result = await new Promise((resolve, reject) => {
+      this.once('plain', ({ version, from, app, command, payload }) => {
+        if (app === '' && command === 'h') {
+          payload = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+          let { publicKey, address } = payload.identity;
+          this.peerIdentity = new Identity(publicKey, address);
+          resolve(payload);
         }
       });
     });
+    return result;
   }
 
-  rawWrite ({v, m, p}) {
-    this.socket.write(v + ':' + m + ':' + p + '\n');
+  wrapEnvelope (payload) {
+    return Buffer.from(JSON.stringify(payload)).toString('base64');
+  }
+
+  writeRaw ({version = 1, mode = 'e', app = '', command, payload}) {
+    console.log(`${version}:${this.identity.address}:${app}:${command}:${mode}:${payload}\n`);
+    this.socket.write(`${version}:${this.identity.address}:${app}:${command}:${mode}:${payload}\n`);
+  }
+
+  write ({ version = 1, app = '', command, payload }) {
+    payload = JSON.stringify(payload);
+
+    let mode = 'e';
+    let enc = this.peerIdentity.encrypt(payload);
+    let sig = this.identity.sign(enc);
+
+    payload = `${enc.toString('base64')}.${sig.toString('base64')}`;
+    this.writeRaw({ version, app, command, mode, payload });
   }
 }
 
