@@ -1,13 +1,13 @@
 const assert = require('assert');
-const { Identity } = require('./identity');
-const debug = require('./helpers/debug');
+const { Identity } = require('../identity');
+const debug = require('debug')('swarm:channel:session');
 const { EventEmitter } = require('events');
 
 /**
  *
  * Mode e,p
  */
-class Session extends EventEmitter {
+class ChannelSession extends EventEmitter {
   constructor ({ url, socket, initiate = false }) {
     super();
 
@@ -27,7 +27,7 @@ class Session extends EventEmitter {
         let [ enc, sig ] = payload.split('.').map(chunk => Buffer.from(chunk, 'base64'));
         let verified = this.peerIdentity.verify(enc, sig);
         if (!verified) {
-          debug('Session', 'unverified encrypted message arrived');
+          debug('unverified encrypted message arrived');
           return;
         }
 
@@ -50,7 +50,7 @@ class Session extends EventEmitter {
   }
 
   end () {
-    debug('Session', 'ending...');
+    debug('Ending socket ...');
     if (!this.socket) {
       return;
     }
@@ -64,7 +64,7 @@ class Session extends EventEmitter {
    * p = payload base64
    */
   async handshake (identity, advertisement) {
-    debug('Session', 'send handshake advertise');
+    debug('Initiate handshake and advertise');
 
     this.identity = identity;
     let { address, publicKey } = identity;
@@ -82,9 +82,14 @@ class Session extends EventEmitter {
     let result = await new Promise((resolve, reject) => {
       this.once('plain', ({ version, from, app, command, payload }) => {
         if (app === '' && command === 'h') {
-          payload = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+          payload = this.unwrapEnvelope(payload);
           let { publicKey, address } = payload.identity;
-          this.peerIdentity = new Identity(publicKey, address);
+          this.peerIdentity = new Identity(publicKey);
+          if (this.peerIdentity.address !== address) {
+            console.error('Session is not coming from valid address');
+            return;
+          }
+          debug('Handshake complete and session established');
           resolve(payload);
         }
       });
@@ -92,12 +97,16 @@ class Session extends EventEmitter {
     return result;
   }
 
+  unwrapEnvelope (payload) {
+    return JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+  }
+
   wrapEnvelope (payload) {
     return Buffer.from(JSON.stringify(payload)).toString('base64');
   }
 
   writeRaw ({version = 1, mode = 'e', app = '', command, payload}) {
-    console.log(`${version}:${this.identity.address}:${app}:${command}:${mode}:${payload}\n`);
+    // debug(`Session`, 'Sending', `${version}:${this.identity.address}:${app}:${command}:${mode}:${payload}\n`);
     this.socket.write(`${version}:${this.identity.address}:${app}:${command}:${mode}:${payload}\n`);
   }
 
@@ -113,4 +122,4 @@ class Session extends EventEmitter {
   }
 }
 
-module.exports = { Session };
+module.exports = { ChannelSession };

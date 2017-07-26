@@ -1,7 +1,7 @@
 const net = require('net');
-const { Channel } = require('../channel');
+const { Channel, ChannelSession } = require('../index');
 const { URL } = require('url');
-const debug = require('../helpers/debug');
+const debug = require('debug')('swarm:channel:adapters:tcp');
 
 class Tcp extends Channel {
   constructor ({ port = 1212, host = '0.0.0.0' } = {}) {
@@ -20,12 +20,13 @@ class Tcp extends Channel {
   }
 
   async up () {
-    debug('Channel:Tcp', `Up at ${this.host}:${this.port}...`);
+    debug(`Getting up at ${this.host}:${this.port} ...`);
     this.server = net.createServer(socket => {
       let { address, port } = socket.address();
-      debug('Channel:Tcp', 'incoming from', address, port);
       let url = `tcp://${address}:${port}`;
-      this.emit('incoming', { socket, url });
+      this.emit('incoming', new ChannelSession({ url, socket }));
+
+      debug(`Incoming from ${url}`);
     });
 
     await new Promise((resolve, reject) => {
@@ -37,22 +38,17 @@ class Tcp extends Channel {
     });
   }
 
-  async connect (url) {
-    debug('Channel:Tcp', `Connect to ${url}...`);
+  connect (url) {
+    debug(`Connecting to ${url} ...`);
     let u = new URL(url);
     let port = u.port;
     let host = u.hostname;
-
-    let socket = await new Promise((resolve, reject) => {
-      let socket = net.connect(port, host, () => resolve(socket));
-      socket.on('error', reject);
-    });
-
-    return socket;
+    let socket = net.connect(port, host);
+    return new ChannelSession({ url, socket });
   }
 
   async down () {
-    debug('Channel:Tcp', `downing...`);
+    debug(`Getting down ...`);
     if (!this.server) {
       return;
     }

@@ -24,6 +24,7 @@
     "sinon": "^2.3.8"
   },
   "dependencies": {
+    "debug": "^2.6.8",
     "js-sha3": "^0.6.1",
     "minimist": "^1.2.0",
     "node-fetch": "^1.7.1",

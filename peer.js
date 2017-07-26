@@ -1,4 +1,3 @@
-const debug = require('./helpers/debug');
 
 class Peer {
   constructor ({ urls = [] } = {}) {
@@ -17,16 +16,6 @@ class Peer {
 
   send (data) {
     return this.session.write(data);
-  }
-
-  async hangup () {
-    debug('Peer', 'Hanging up');
-    if (!this.session) {
-      return;
-    }
-
-    await this.session.end();
-    this.session = null;
   }
 
   dump () {

@@ -4,14 +4,14 @@ const sha3256 = require('js-sha3').sha3_256;
 const KEY_SIZE = 512;
 
 class Identity {
-  constructor (key, address) {
-    if (!key || typeof key !== 'string') {
+  constructor (key) {
+    if (key && typeof key === 'string') {
+      this.key = new RSA(key);
+    } else {
       this.generate(key);
-      return;
     }
 
-    this.key = new RSA(key);
-    this.address = address || (this.key.isPrivate() ? sha3256(key).slice(-20) : address);
+    this.address = sha3256(this.publicKey).slice(-20);
   }
 
   get privateKey () {
@@ -24,9 +24,6 @@ class Identity {
 
   generate (key) {
     this.key = new RSA(key || { b: KEY_SIZE });
-    let privateKey = this.privateKey;
-    this.address = sha3256(privateKey).slice(-20);
-    return privateKey;
   }
 
   encrypt (...args) {

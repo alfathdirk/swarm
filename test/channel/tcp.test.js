@@ -1,5 +1,5 @@
 const assert = require('assert');
-const Tcp = require('../../channel/tcp');
+const Tcp = require('../../channel/adapters/tcp');
 
 describe('Channel:Tcp', () => {
   describe('constructor', () => {
