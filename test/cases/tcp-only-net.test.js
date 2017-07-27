@@ -1,6 +1,7 @@
 const assert = require('assert');
 const sinon = require('sinon');
 const { Swarm } = require('../../swarm');
+const debug = require('debug')('swarm:test:case:tcp-only');
 
 describe.only('Case: tcp only net', () => {
   let swarm1;
@@ -56,6 +57,8 @@ describe.only('Case: tcp only net', () => {
           reject(err);
         }
       });
+
+      // debug(swarm2.peers)
 
       swarm1.send(swarm2.address, outboundMessage);
     });

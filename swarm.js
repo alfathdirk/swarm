@@ -1,6 +1,6 @@
 const { ChannelRegistry } = require('./channel');
 const { Peer } = require('./peer');
-const { Discovery } = require('./discovery');
+const { DiscoveryRegistry } = require('./discovery');
 const { Identity } = require('./identity');
 const { EventEmitter } = require('events');
 const assert = require('assert');
@@ -42,53 +42,17 @@ class Swarm extends EventEmitter {
     this.peers = [];
     this.maxPeers = maxPeers;
 
-    this.channels = channels instanceof ChannelRegistry ? channels : new ChannelRegistry(channels);
+    this.channels = channels instanceof ChannelRegistry
+      ? channels
+      : new ChannelRegistry(channels);
 
-    this.initDiscovery(discovery, bootPeers);
+    this.discovery = discovery instanceof DiscoveryRegistry
+      ? discovery
+      : new DiscoveryRegistry(discovery, bootPeers);
   }
 
   get address () {
     return this.identity.address;
-  }
-
-  initDiscovery (definitions = [], bootPeers = []) {
-    this.discovery = {};
-
-    if (bootPeers && bootPeers.length) {
-      let definition = definitions.find(definition => definition.kind === 'boot');
-      if (definition) {
-        definition.bootPeers = (definition.bootPeers || []).concat(bootPeers);
-      } else {
-        definitions.unshift({ kind: 'boot', bootPeers });
-      }
-    }
-    definitions.forEach(definition => {
-      this.addDiscovery(definition);
-    });
-  }
-
-  addDiscovery (method) {
-    method = this.resolveDiscovery(method);
-    this.discovery[method.kind] = method;
-  }
-
-  resolveDiscovery (definition) {
-    if (definition instanceof Discovery) {
-      return definition;
-    }
-
-    if (!definition.kind) {
-      throw new Error('Invalid discovery method definition');
-    }
-
-    let DiscoveryAdapter;
-    try {
-      DiscoveryAdapter = require(`./discovery/${definition.kind}`);
-    } catch (err) {
-      throw new Error(`Discovery adapter not found ${definition.kind}`);
-    }
-
-    return new DiscoveryAdapter(definition);
   }
 
   send (address, data) {
@@ -151,14 +115,12 @@ class Swarm extends EventEmitter {
   }
 
   async bootstrapPeers () {
-    await Promise.all(Object.values(this.discovery).map(async method => {
-      let peers = await method.discover();
-      await Promise.all(peers.map(async peer => {
-        peer = this.resolvePeer(peer);
-        let session = await this.dial(peer);
-        await this.connect(peer, session);
-        this.addPeer(peer);
-      }));
+    let peers = await this.discovery.discover();
+    await Promise.all(peers.map(async peer => {
+      peer = this.resolvePeer(peer);
+      let session = await this.dial(peer);
+      await this.connect(peer, session);
+      this.addPeer(peer);
     }));
   }
 

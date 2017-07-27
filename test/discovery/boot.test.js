@@ -1,5 +1,5 @@
 const assert = require('assert');
-const Boot = require('../../discovery/boot');
+const Boot = require('../../discovery/adapters/boot');
 
 describe('Discovery:Boot', () => {
   describe('constructor', () => {
