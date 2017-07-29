@@ -2,8 +2,7 @@ const assert = require('assert');
 const sinon = require('sinon');
 const { Swarm } = require('../../swarm');
 const debug = require('debug')('swarm:test:case:tcp-only');
-const Tcp = require('../../channel/adapters/tcp');
-const Boot = require('../../discovery/adapters/boot');
+const Tcp = require('../../channel/tcp');
 
 describe('Case: tcp only', () => {
   let swarm1;
@@ -29,8 +28,7 @@ describe('Case: tcp only', () => {
     swarm.addChannel(channel);
 
     if (peer) {
-      let discovery = new Boot({ bootPeers: [ peer ] });
-      swarm.discovery.add(discovery);
+      swarm.add(peer);
     }
     return swarm;
   }
@@ -55,9 +53,13 @@ describe('Case: tcp only', () => {
     assert(spy2.called);
     assert.equal(swarm1.peers.length, 1);
     assert.equal(swarm2.peers.length, 1);
+  });
 
-    // console.log(swarm1.peers);
-    // console.log(swarm2.peers);
+  it('send to other peer', async () => {
+    await init();
+
+    await swarm1.start();
+    await swarm2.start();
 
     await new Promise((resolve, reject) => {
       let outboundMessage = {
@@ -77,9 +79,7 @@ describe('Case: tcp only', () => {
         }
       });
 
-      // debug(swarm2.peers)
-
-      swarm1.send(swarm2.address, outboundMessage);
+      swarm1.send(Object.assign({ address: swarm2.address }, outboundMessage));
     });
   });
 });

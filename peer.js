@@ -4,9 +4,16 @@ const debug = require('debug')('swarm:peer');
 class Peer {
   constructor ({ urls = [], session }) {
     this.address = '';
+    this.publicKey = '';
     this.urls = urls;
     this.apps = [];
     this.session = session;
+    // Object.defineProperty(this, 'session', {
+    //   enumerable: false,
+    //   writable: true,
+    //   configurable: true,
+    //   value: session,
+    // });
   }
 
   get connected () {
@@ -20,18 +27,20 @@ class Peer {
   async handshake () {
     let advertisement = await this.session.handshake();
     this.address = advertisement.address;
+    this.publicKey = advertisement.publicKey;
     this.urls = advertisement.urls;
     this.apps = advertisement.apps;
   }
 
-  send (data) {
-    return this.session.write(data);
+  send ({ app, command, payload }) {
+    return this.session.write({ app, command, payload });
   }
 
   dump () {
-    let { urls, identity, apps } = this;
+    let { address, publicKey, urls, apps } = this;
     return {
-      identity,
+      address,
+      publicKey,
       urls,
       apps,
     };

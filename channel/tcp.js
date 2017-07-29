@@ -1,7 +1,7 @@
 const net = require('net');
-const { Channel } = require('../index');
 const { URL } = require('url');
-const debug = require('debug')('swarm:channel:adapters:tcp');
+const debug = require('debug')('swarm:channel:tcp');
+const { Channel } = require('../channel');
 
 class Tcp extends Channel {
   constructor ({ port = 1212, host = '0.0.0.0' } = {}) {
@@ -11,12 +11,8 @@ class Tcp extends Channel {
     this.port = port;
   }
 
-  get kind () {
+  get proto () {
     return 'tcp';
-  }
-
-  get listening () {
-    return this.server ? this.server.listening : false;
   }
 
   async up () {
@@ -34,10 +30,8 @@ class Tcp extends Channel {
 
   _onListening (socket) {
     let { address, port } = socket.address();
-    let url = `tcp://${address}:${port}`;
+    let url = `${this.proto}://${address}:${port}`;
     this.emit('incoming', { url, socket });
-
-    debug(`Incoming from ${url}`);
   }
 
   connect (url) {
@@ -60,8 +54,8 @@ class Tcp extends Channel {
     });
   }
 
-  ipUrls (ips) {
-    return ips.map(ip => `tcp:/${ip}:${this.port}`);
+  formatUrl (ip, port) {
+    return `${this.proto}://${ip}:${this.port}`;
   }
 }
 

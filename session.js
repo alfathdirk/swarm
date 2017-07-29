@@ -2,6 +2,10 @@ const assert = require('assert');
 const { Identity } = require('./identity');
 const debug = require('debug')('swarm:session');
 const { EventEmitter } = require('events');
+const split = require('split');
+
+const TIMEOUT_HANDSHAKE = 10000;
+const SYSTEM_APPNAME = '!';
 
 /**
  *
@@ -20,8 +24,9 @@ class Session extends EventEmitter {
     this.peerIdentity = null;
     this.initiate = initiate;
     this.socket = socket;
+    this.chunks = [];
 
-    socket.on('data', this._onSocketData.bind(this));
+    socket.pipe(split(null, null, { trailing: false })).on('data', this._onSocketData.bind(this));
     socket.on('end', this._onSocketEnd.bind(this));
   }
 
@@ -29,22 +34,24 @@ class Session extends EventEmitter {
     return Boolean(this.peerIdentity);
   }
 
-  _onSocketData (buf) {
-    let message = buf.toString();
-    let [ from, app, command, mode, payload ] = message.split(':');
+  _onSocketData (chunk) {
+    let message = chunk.toString();
+    let [ address, app, command, mode, payload ] = message.split(':');
     if (mode === 'e') {
       let [ enc, sig ] = payload.split('.').map(chunk => Buffer.from(chunk, 'base64'));
       let verified = this.peerIdentity.verify(enc, sig);
       if (!verified) {
-        debug('unverified encrypted message arrived');
+        debug('Unverified encrypted message arrived');
         return;
       }
 
       payload = JSON.parse(this.swarm.identity.decrypt(enc, 'utf8'));
 
-      this.swarm.emit('message', { from, app, command, payload });
-    } else {
-      this.emit('plain', { from, app, command, payload });
+      this.swarm.emit('message', { address, app, command, payload });
+    } else if (app !== SYSTEM_APPNAME) {
+      this.swarm.emit('plain', { address, app, command, payload });
+    } else if (command === 'h') {
+      this._onHandshake({ address, app, command, payload });
     }
   }
 
@@ -54,7 +61,7 @@ class Session extends EventEmitter {
   }
 
   end () {
-    debug('Ending socket ...');
+    // debug('Ending socket ...');
     if (!this.socket) {
       return;
     }
@@ -63,14 +70,12 @@ class Session extends EventEmitter {
   }
 
   /**
-   * v = version
-   * m = mode - h = handshake, d = data
-   * p = payload base64
+   * mode = p: plain e: encrypted
    */
   async handshake () {
     debug('Initiate handshake and advertise');
-
     this.writeRaw({
+      app: SYSTEM_APPNAME,
       command: 'h',
       mode: 'p',
       payload: this.wrapEnvelope(this.swarm.advertisement),
@@ -81,21 +86,38 @@ class Session extends EventEmitter {
     }
 
     let result = await new Promise((resolve, reject) => {
-      this.once('plain', ({ version, from, app, command, payload }) => {
-        if (app === '' && command === 'h') {
-          let advertisement = payload = this.unwrapEnvelope(payload);
-          let { publicKey, address } = advertisement;
-          this.peerIdentity = new Identity(publicKey);
-          if (this.peerIdentity.address !== address) {
-            console.error('Session is not coming from valid address');
-            return;
-          }
-          debug('Handshake complete and session established');
-          resolve(advertisement);
-        }
-      });
+      this._handshakeCallbacks = [ resolve, reject ];
+
+      setTimeout(() => {
+        this._handshakeCallbacks = null;
+        reject(new Error('Handshake timeout'));
+      }, TIMEOUT_HANDSHAKE);
     });
+
     return result;
+  }
+
+  _onHandshake ({ address, app, command, payload }) {
+    if (!this._handshakeCallbacks) {
+      return;
+    }
+
+    let [ resolve, reject ] = this._handshakeCallbacks;
+    this._handshakeCallbacks = null;
+
+    try {
+      let advertisement = payload = this.unwrapEnvelope(payload);
+      let { publicKey, address } = advertisement;
+      this.peerIdentity = new Identity(publicKey);
+      if (this.peerIdentity.address !== address) {
+        console.error('Session is not coming from valid address');
+        return;
+      }
+      resolve(advertisement);
+    } catch (err) {
+      console.error('handshake error', err);
+      reject(err);
+    }
   }
 
   unwrapEnvelope (payload) {
@@ -106,19 +128,26 @@ class Session extends EventEmitter {
     return Buffer.from(JSON.stringify(payload)).toString('base64');
   }
 
-  writeRaw ({ mode = 'e', app = '', command, payload }) {
+  writeRaw ({ mode = 'e', app, command, payload = '' }) {
+    assert(app, 'Destination app must be specified');
+    assert(app, 'Destination command must be specified');
     let message = `${this.swarm.identity.address}:${app}:${command}:${mode}:${payload}\n`;
+    // debug('Sending', message);
     this.socket.write(message);
   }
 
-  write ({ app = '', command, payload }) {
-    payload = JSON.stringify(payload);
-
+  write ({ app, command, payload = '' }) {
     let mode = 'e';
-    let enc = this.peerIdentity.encrypt(payload);
-    let sig = this.swarm.identity.sign(enc);
 
-    payload = `${enc.toString('base64')}.${sig.toString('base64')}`;
+    if (payload) {
+      payload = JSON.stringify(payload);
+      let enc = this.peerIdentity.encrypt(payload);
+      let sig = this.swarm.identity.sign(enc);
+      payload = `${enc.toString('base64')}.${sig.toString('base64')}`;
+    } else {
+      mode = 'p';
+    }
+
     this.writeRaw({ app, command, mode, payload });
   }
 }
