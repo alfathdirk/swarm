@@ -2,27 +2,46 @@ const assert = require('assert');
 const sinon = require('sinon');
 const { Swarm } = require('../../swarm');
 const debug = require('debug')('swarm:test:case:tcp-only');
+const Tcp = require('../../channel/adapters/tcp');
+const Boot = require('../../discovery/adapters/boot');
 
-describe.only('Case: tcp only net', () => {
+describe('Case: tcp only', () => {
   let swarm1;
   let swarm2;
 
-  beforeEach(() => {
-    swarm1 = new Swarm({ channels: [ { kind: 'tcp', port: 12121 } ] });
-    swarm2 = new Swarm({
-      channels: [ { kind: 'tcp', port: 12122 } ],
-      bootPeers: [ 'tcp://localhost:12121' ],
-    });
-  });
+  function init () {
+    swarm1 = createSwarm({ port: 12121 });
+    swarm2 = createSwarm({ port: 12122, peer: 'tcp://localhost:12121' });
+  }
 
-  afterEach(async () => {
+  async function exit () {
     let result = [];
     try { result.push(swarm1.stop()); } catch (err) {}
     try { result.push(swarm2.stop()); } catch (err) {}
     await Promise.all(result);
+    swarm1 = null;
+    swarm2 = null;
+  }
+
+  function createSwarm ({ port, peer }) {
+    let swarm = new Swarm();
+    let channel = new Tcp({ port });
+    swarm.addChannel(channel);
+
+    if (peer) {
+      let discovery = new Boot({ bootPeers: [ peer ] });
+      swarm.discovery.add(discovery);
+    }
+    return swarm;
+  }
+
+  afterEach(async () => {
+    await exit();
   });
 
   it('connect to boot peer', async () => {
+    await init();
+
     let spy1 = sinon.spy();
     let spy2 = sinon.spy();
 

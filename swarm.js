@@ -1,4 +1,4 @@
-const { ChannelRegistry } = require('./channel');
+const { Session } = require('./session');
 const { Peer } = require('./peer');
 const { DiscoveryRegistry } = require('./discovery');
 const { Identity } = require('./identity');
@@ -6,7 +6,8 @@ const { EventEmitter } = require('events');
 const assert = require('assert');
 const Memory = require('./storage/memory');
 const debug = require('debug')('swarm:swarm');
-
+const getIps = require('./lib/get-ips');
+const sleep = require('./lib/sleep');
 /**
  * Object to initiate swarm network or join to network
  */
@@ -26,12 +27,11 @@ class Swarm extends EventEmitter {
    * apps - App definitions
    */
   constructor ({
-    networkId = '',
+    networkId = '0',
     storage = new Memory(),
     discovery = [],
     bootPeers = [],
     maxPeers = 25,
-    channels = [],
     apps = [],
   } = {}) {
     super();
@@ -42,9 +42,7 @@ class Swarm extends EventEmitter {
     this.peers = [];
     this.maxPeers = maxPeers;
 
-    this.channels = channels instanceof ChannelRegistry
-      ? channels
-      : new ChannelRegistry(channels);
+    this.channels = [];
 
     this.discovery = discovery instanceof DiscoveryRegistry
       ? discovery
@@ -55,116 +53,108 @@ class Swarm extends EventEmitter {
     return this.identity.address;
   }
 
-  send (address, data) {
-    let peer = this.findPeer(address);
+  get advertisement () {
+    return {
+      address: this.identity.address,
+      publicKey: this.identity.publicKey,
+      urls: this.getChannelUrls(),
+      apps: this.getEligibleApps(),
+    };
+  }
+
+  addChannel (channel) {
+    this.channels.push(channel);
+  }
+
+  getChannelUrls () {
+    let ips = getIps();
+    let urls = [];
+    this.channels.forEach(channel => channel.ipUrls(ips).forEach(url => urls.push(url)));
+    return urls;
+  }
+
+  async send (address, data) {
+    let peer = await this.getPeer(address);
+
+    assert(peer, `Peer not found at ${address}`);
     return peer.send(data);
   }
 
-  findPeer (address) {
-    return this.peers.find(peer => peer.identity.address === address);
+  getPeer (address) {
+    return this.peers.find(peer => peer.address === address);
   }
 
-  addPeer (peer) {
+  /**
+   * Add peer to the swarm
+   *
+   * Several things will happen:
+   *
+   * - Resolve definition into peer instance
+   * - Connect to peer instance
+   * - Add peer to peers collection
+   * - Emit connect
+   *
+   * When something wrong, function will throw an error
+   *
+   * @param {*} definition url string or peer definition or peer instance
+   */
+  async addPeer (definition) {
+    let peer = this.resolvePeer(definition);
+
+    await this.connectPeer(peer);
+
     this.peers.push(peer);
-  }
-
-  async start () {
-    await this.bootstrapIdentity();
-
-    this.channels.on('incoming', async session => {
-      let peer = this.newPeer();
-      await this.connect(peer, session);
-      this.addPeer(peer);
-
-      debug(`Incoming session from ${session.peerIdentity.address}`);
-    });
-    await this.channels.boot();
-    await this.bootstrapPeers();
-    // await this.apps.bootstrap();
-
-    await new Promise(resolve => setTimeout(resolve));
-  }
-
-  async stop () {
-    // await this.apps.debootstrap();
-    await this.debootstrapPeers();
-
-    await this.channels.deboot();
-    this.channels.removeAllListeners('incoming');
-
-    await this.debootstrapIdentity();
-
-    await new Promise(resolve => setTimeout(resolve));
-  }
-
-  async init () {
-    this.identity = new Identity();
-    await this.storage.write('privkey.pem', this.identity.privateKey);
-  }
-
-  async bootstrapIdentity () {
-    if (await this.storage.exists('privkey.pem')) {
-      this.identity = new Identity(await this.storage.read('privkey.pem'));
-    } else {
-      await this.init();
-    }
-  }
-
-  /* async */ debootstrapIdentity () {
-    this.identity = null;
-  }
-
-  async bootstrapPeers () {
-    let peers = await this.discovery.discover();
-    await Promise.all(peers.map(async peer => {
-      peer = this.resolvePeer(peer);
-      let session = await this.dial(peer);
-      await this.connect(peer, session);
-      this.addPeer(peer);
-    }));
-  }
-
-  async debootstrapPeers () {
-    await Promise.all(this.peers.map(peer => this.disconnect(peer)));
-
-    this.peers = [];
-  }
-
-  resolvePeer (peer) {
-    if (peer instanceof Peer) {
-      return peer;
-    }
-
-    return this.newPeer(peer);
-  }
-
-  newPeer (peer) {
-    return new Peer(peer);
-  }
-
-  async connect (peer, session) {
-    assert(peer, 'Peer must specified');
-    assert(session, 'Session must specified');
-
-    // TODO: potentially memory leak, find way to avoid event delegation
-    session.on('message', message => this.emit('message', message));
-
-    let advertisement = this.getAdvertisement();
-    let advertised = await session.handshake(this.identity, advertisement);
-    Object.assign(peer, advertised);
-    peer.session = session;
 
     this.emit('connect', peer);
   }
 
-  async dial (peer) {
+  resolvePeer (definition) {
+    if (definition instanceof Peer) {
+      return definition;
+    }
+
+    if (typeof definition === 'string') {
+      definition = { urls: [ definition ] };
+    }
+
+    return new Peer(definition);
+  }
+
+  async connectPeer (peer) {
+    assert(peer instanceof Peer, 'Invalid peer');
+    if (!peer.session) {
+      await this.dialPeer(peer);
+    }
+    await peer.handshake();
+  }
+
+  async disconnectPeer (peer) {
+    assert(peer instanceof Peer, 'Invalid peer');
+
+    debug('Disconnecting peer ...');
+
+    if (!peer.session) {
+      return;
+    }
+
+    await peer.session.end();
+    peer.session = null;
+
+    this.emit('disconnect', this);
+  }
+
+  async dialPeer (peer) {
+    assert(peer instanceof Peer, 'Invalid peer');
+
     for (let url of peer.urls) {
-      let channel = this.channels.forUrl(url);
+      let channel = this.getChannelByUrl(url);
       if (channel) {
         try {
-          let session = await channel.connect(url);
-          return session;
+          let socket = await channel.connect(url);
+          peer.session = this.createSession({ url, socket, initiate: true });
+          return peer.session;
         } catch (err) {
+          // TODO: notify socket about error
           console.error(err);
           console.error(`Channel connect error url[${url}] message[${err.message}]`);
         }
@@ -174,11 +164,83 @@ class Swarm extends EventEmitter {
     throw new Error('Dial error');
   }
 
-  getAdvertisement () {
-    return {
-      urls: this.channels.getEligibleUrls(),
-      apps: this.getEligibleApps(),
-    };
+  async start () {
+    await this.bootIdentity();
+    await this.bootChannels();
+    await this.bootPeers();
+    // await this.apps.bootstrap();
+    await sleep();
+  }
+
+  async stop () {
+    // await this.apps.debootstrap();
+    await this.debootPeers();
+    await this.debootChannels();
+    await this.debootIdentity();
+    await sleep();
+  }
+
+  async bootChannels () {
+    await Promise.all(this.channels.map(channel => this.startChannel(channel)));
+  }
+
+  async debootChannels () {
+    await Promise.all(this.channels.map(channel => this.stopChannel(channel)));
+  }
+
+  async startChannel (channel) {
+    channel.on('incoming', async ({ url, socket }) => {
+      try {
+        debug(`Incoming socket from ${url}`);
+        let session = this.createSession({ url, socket });
+        await this.addPeer({ session });
+      } catch (err) {
+        // TODO: notify socket about error
+        console.error('Error on incoming', err);
+      }
+    });
+
+    await channel.up();
+  }
+
+  async stopChannel (channel) {
+    channel.removeAllListeners('incoming');
+    await channel.down();
+  }
+
+  createSession ({ url, socket }) {
+    let swarm = this;
+    return new Session({ swarm, url, socket });
+  }
+
+  async initIdentity () {
+    this.identity = new Identity();
+    await this.storage.write('privkey.pem', this.identity.privateKey);
+  }
+
+  async bootIdentity () {
+    if (await this.storage.exists('privkey.pem')) {
+      this.identity = new Identity(await this.storage.read('privkey.pem'));
+    } else {
+      await this.initIdentity();
+    }
+  }
+
+  /* async */ debootIdentity () {
+    this.identity = null;
+  }
+
+  async bootPeers () {
+    let definitions = await this.discovery.discover();
+    await Promise.all(definitions.map(async definition => {
+      await this.addPeer(definition);
+    }));
+  }
+
+  async debootPeers () {
+    await Promise.all(this.peers.map(peer => this.disconnectPeer(peer)));
+
+    this.peers = [];
   }
 
   // TODO: revisit this later when app implemented
@@ -186,19 +248,9 @@ class Swarm extends EventEmitter {
     return [];
   }
 
-  async disconnect (peer) {
-    debug('Disconnecting peer ...');
-    if (!peer.session) {
-      return;
-    }
-
-    let { session } = peer;
-    peer.session = null;
-    await session.end();
-
-    session.removeAllListeners('message');
-
-    this.emit('disconnect', peer);
+  getChannelByUrl (url) {
+    let proto = url.split(':').shift();
+    return this.channels.find(channel => channel.kind === proto);
   }
 }
 

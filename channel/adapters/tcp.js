@@ -1,5 +1,5 @@
 const net = require('net');
-const { Channel, ChannelSession } = require('../index');
+const { Channel } = require('../index');
 const { URL } = require('url');
 const debug = require('debug')('swarm:channel:adapters:tcp');
 
@@ -21,13 +21,7 @@ class Tcp extends Channel {
 
   async up () {
     debug(`Getting up at ${this.host}:${this.port} ...`);
-    this.server = net.createServer(socket => {
-      let { address, port } = socket.address();
-      let url = `tcp://${address}:${port}`;
-      this.emit('incoming', new ChannelSession({ url, socket }));
-
-      debug(`Incoming from ${url}`);
-    });
+    this.server = net.createServer(this._onListening.bind(this));
 
     await new Promise((resolve, reject) => {
       this.server.listen(this.port, this.host, () => {
@@ -38,13 +32,20 @@ class Tcp extends Channel {
     });
   }
 
+  _onListening (socket) {
+    let { address, port } = socket.address();
+    let url = `tcp://${address}:${port}`;
+    this.emit('incoming', { url, socket });
+
+    debug(`Incoming from ${url}`);
+  }
+
   connect (url) {
     debug(`Connecting to ${url} ...`);
     let u = new URL(url);
     let port = u.port;
     let host = u.hostname;
-    let socket = net.connect(port, host);
-    return new ChannelSession({ url, socket });
+    return net.connect(port, host);
   }
 
   async down () {

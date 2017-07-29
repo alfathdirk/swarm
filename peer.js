@@ -1,9 +1,12 @@
+const assert = require('assert');
+const debug = require('debug')('swarm:peer');
 
 class Peer {
-  constructor ({ urls = [] } = {}) {
+  constructor ({ urls = [], session }) {
+    this.address = '';
     this.urls = urls;
-    this.session = null;
     this.apps = [];
+    this.session = session;
   }
 
   get connected () {
@@ -12,6 +15,13 @@ class Peer {
 
   get initiate () {
     return Boolean(this.session && this.session.initiate);
+  }
+
+  async handshake () {
+    let advertisement = await this.session.handshake();
+    this.address = advertisement.address;
+    this.urls = advertisement.urls;
+    this.apps = advertisement.apps;
   }
 
   send (data) {

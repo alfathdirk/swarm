@@ -2,6 +2,13 @@
 
 Object to manage network by swarming peers.
 
+```js
+
+let swarm = new Swarm();
+swarm.add('tcp://foo.bar:12121');
+swarm.start();
+```
+
 ## Options
 
 - dataDir string
