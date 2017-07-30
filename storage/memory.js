@@ -14,10 +14,6 @@ class Memory {
   exists (key) {
     return key in this.data;
   }
-
-  inspect () {
-    return {};
-  }
 }
 
 module.exports = Memory;

@@ -5,7 +5,7 @@ const debug = require('debug')('swarm:test:case:tcp-only');
 const Tcp = require('../../channel/tcp');
 const PeerLookup = require('../../app/peer-lookup');
 
-describe.only('Case: send to unknown peer', () => {
+describe('Case: send to unknown peer', () => {
   let swarms;
 
   function init () {

@@ -105,7 +105,7 @@ describe('Identity', () => {
   describe('#address', () => {
     it('return identity address', () => {
       let identity = new Identity(ALICE_PRIV_KEY);
-      assert.equal(identity.address, sha3256(ALICE_PRIV_KEY).slice(-20));
+      assert.equal(identity.address, sha3256(ALICE_PUB_KEY).slice(-20));
     });
   });
 

@@ -41,11 +41,6 @@ class Identity {
   verify (...args) {
     return this.key.verify(...args);
   }
-
-  dump () {
-    let { address, publicKey } = this;
-    return { address, publicKey };
-  }
 }
 
 module.exports = { Identity };

@@ -13,9 +13,8 @@ describe('Channel:Tcp', () => {
     it('start listening', async () => {
       let channel = new Tcp();
       try {
-        assert(!channel.listening);
         await channel.up();
-        assert(channel.listening);
+        assert(channel.server.listening);
         await channel.down();
       } catch (err) {
         try { await channel.down(); } catch (err) {}
@@ -23,10 +22,4 @@ describe('Channel:Tcp', () => {
       }
     });
   });
-
-  // describe('#down()', () => {
-  //   it('stop listening', () => {
-
-  //   });
-  // });
 });
